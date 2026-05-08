@@ -6,20 +6,28 @@
     <title>보드메이트 경매장</title>
     <style>
         body { font-family: 'Pretendard', sans-serif; background-color: #f4f7f6; margin: 0; padding: 20px; color: #333; }
-        .header { display: flex; justify-content: space-between; align-items: center; max-width: 1000px; margin: 0 auto 20px auto; }
+        .header { display: flex; justify-content: space-between; align-items: center; max-width: 1000px; margin: 0 auto 20px auto; flex-wrap: wrap; gap: 15px; }
         .header h1 { margin: 0; color: #2c3e50; }
+        .user-controls { display: flex; gap: 10px; align-items: center; flex-wrap: wrap; }
         .section-title { max-width: 1000px; margin: 30px auto 15px auto; color: #2c3e50; border-bottom: 2px solid #ccc; padding-bottom: 5px; font-size: 1.5em; }
         button { background-color: #3498db; color: white; border: none; padding: 10px 15px; border-radius: 5px; cursor: pointer; font-weight: bold; }
         button:hover { background-color: #2980b9; }
         button:disabled { background-color: #bdc3c7; cursor: not-allowed; }
         input, textarea { width: 100%; padding: 10px; margin: 5px 0 15px 0; box-sizing: border-box; border: 1px solid #ccc; border-radius: 5px; font-family: inherit; }
+        input[readonly] { background-color: #e9ecef; color: #7f8c8d; cursor: not-allowed; }
         
         .grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(280px, 1fr)); gap: 20px; max-width: 1000px; margin: 0 auto; }
-        .card { background: white; border-radius: 10px; padding: 20px; box-shadow: 0 4px 6px rgba(0,0,0,0.05); cursor: pointer; transition: transform 0.2s; border: 1px solid #eee; }
+        .card { background: white; border-radius: 10px; padding: 20px; box-shadow: 0 4px 6px rgba(0,0,0,0.05); cursor: pointer; transition: transform 0.2s; border: 1px solid #eee; display: flex; flex-direction: column; justify-content: space-between; }
         .card:hover { transform: translateY(-5px); border-color: #3498db; }
         .title { font-size: 1.3em; font-weight: bold; margin-bottom: 15px; color: #2c3e50; }
         .price { font-size: 1.3em; color: #e74c3c; font-weight: bold; margin: 10px 0; }
         
+        /* 페이지네이션 스타일 */
+        .pagination { display: flex; justify-content: center; gap: 5px; margin: 20px auto; max-width: 1000px; flex-wrap: wrap; }
+        .page-btn { padding: 8px 12px; background: white; border: 1px solid #ddd; color: #333; border-radius: 5px; cursor: pointer; font-weight: normal; }
+        .page-btn:hover { background: #eee; }
+        .page-btn.active { background: #3498db; color: white; border-color: #3498db; font-weight: bold; }
+
         .modal { display: none; position: fixed; top: 0; left: 0; width: 100%; height: 100%; background: rgba(0,0,0,0.6); justify-content: center; align-items: center; z-index: 1000; }
         .modal-content { background: white; padding: 20px; border-radius: 10px; width: 90%; max-width: 500px; max-height: 90vh; overflow-y: auto; }
         .modal-actions { display: flex; justify-content: flex-end; gap: 10px; margin-top: 15px; }
@@ -38,22 +46,42 @@
         .reply-btn { background: none; color: #3498db; padding: 0; font-size: 0.85em; margin-top: 5px; }
 
         #loading { display: none; text-align: center; font-weight: bold; padding: 20px; color: #3498db; }
+        .empty-state { text-align: center; color: #7f8c8d; padding: 30px; grid-column: 1 / -1; background: white; border-radius: 10px; }
     </style>
 </head>
 <body>
 
     <div class="header">
         <h1>🎲 보드메이트 경매장</h1>
-        <button onclick="openModal('uploadModal')">+ 새 물품 올리기</button>
+        <div class="user-controls" id="userControls"></div>
     </div>
 
     <div id="loading">데이터를 불러오는 중입니다... ⏳</div>
     
     <h2 class="section-title">🟢 진행 중인 경매</h2>
     <div class="grid" id="activeGrid"></div>
+    <!-- 진행 중인 경매 페이지네이션 -->
+    <div class="pagination" id="activePagination"></div>
 
     <h2 class="section-title" style="margin-top: 50px; color: #7f8c8d;">🔴 마감된 경매</h2>
     <div class="grid" id="closedGrid" style="opacity: 0.7;"></div>
+    <!-- 마감된 경매 페이지네이션 -->
+    <div class="pagination" id="closedPagination"></div>
+
+    <!-- 0. 로그인 모달 -->
+    <div class="modal" id="loginModal">
+        <div class="modal-content" style="max-width: 350px;">
+            <h2 style="margin-top: 0;">👤 간편 로그인</h2>
+            <p style="font-size: 0.9em; color: #7f8c8d; margin-bottom: 20px;">
+                비밀번호 없이 닉네임만으로 이용합니다.<br>입력하신 닉네임으로 물품 등록과 입찰이 진행됩니다.
+            </p>
+            <input type="text" id="loginNickname" placeholder="사용할 닉네임 입력" onkeypress="if(event.keyCode==13) processLogin()">
+            <div class="modal-actions">
+                <button class="close-btn" onclick="closeModal('loginModal')">취소</button>
+                <button onclick="processLogin()">시작하기</button>
+            </div>
+        </div>
+    </div>
 
     <!-- 1. 물품 등록 모달 -->
     <div class="modal" id="uploadModal">
@@ -72,11 +100,11 @@
             <label>마감 시간 *</label>
             <input type="datetime-local" id="endTime">
             
-            <label>판매자 닉네임 *</label>
-            <input type="text" id="sellerName" placeholder="본인 닉네임">
-            
             <label>다음 정모 참석 예정일 (선택사항)</label>
             <input type="date" id="meetingDate">
+            
+            <label>판매자 닉네임</label>
+            <input type="text" id="sellerName" readonly>
             
             <div class="modal-actions">
                 <button class="close-btn" onclick="closeModal('uploadModal')">취소</button>
@@ -95,14 +123,22 @@
             <p>💰 현재 최고가: <b id="detailPrice" style="color:#e74c3c; font-size:1.2em;"></b> (입찰자: <span id="detailTopBidder"></span>)</p>
             <p>🕒 마감 시간: <span id="detailEndTime"></span></p>
             <p>👤 판매자: <span id="detailSeller"></span></p>
-            <p>📅 참석 예정일: <span id="detailMeetingDate"></span></p>
+            <p>📅 정모 참석 예정일: <span id="detailMeetingDate"></span></p>
+            
+            <!-- 삭제 동의 영역 -->
+            <div id="deleteActionArea" style="display:none; margin-top:20px; padding:15px; background:#fff3cd; border-radius:8px; text-align:center;">
+                <p style="margin:0 0 10px 0; font-size:0.9em; color:#856404;" id="deleteStatusText"></p>
+                <button id="btnAgreeDelete" onclick="submitDeleteAgreement()" style="background-color:#e67e22; width:100%;">내역 삭제 동의</button>
+            </div>
             
             <button id="btnOpenBid" style="width: 100%; margin-bottom: 20px; font-size: 1.1em; padding: 15px;" onclick="openBidArea()">참여하기 (입찰)</button>
             
             <!-- 입찰 입력 영역 -->
             <div id="bidArea" style="display:none; background:#f4f7f6; padding:15px; border-radius:8px; margin-bottom:20px;">
-                <input type="text" id="bidderName" placeholder="입찰자 닉네임">
-                <input type="number" id="bidAmount" placeholder="입찰 금액 (원)">
+                <label style="font-size: 0.9em; font-weight: bold;">입찰자</label>
+                <input type="text" id="bidderName" readonly>
+                <label style="font-size: 0.9em; font-weight: bold;">입찰 금액 (원)</label>
+                <input type="number" id="bidAmount" placeholder="입찰 금액">
                 <button id="submitBidBtn" style="width: 100%;" onclick="submitBid()">입찰 확정</button>
             </div>
 
@@ -110,7 +146,7 @@
             <div class="comment-section">
                 <h3>💬 질의응답</h3>
                 <div class="comment-form">
-                    <input type="text" id="newCommentAuthor" placeholder="닉네임">
+                    <input type="text" id="newCommentAuthor" readonly placeholder="닉네임">
                     <textarea id="newCommentText" placeholder="질문이나 댓글을 남겨주세요."></textarea>
                     <button onclick="submitComment()">등록</button>
                 </div>
@@ -118,7 +154,7 @@
                 <div id="replyFormArea" style="display:none; margin-bottom: 15px; background: #e8f4fd; padding: 10px; border-radius: 5px;">
                     <span style="font-size:0.8em; color:#2980b9;">↳ 대댓글 작성 중...</span>
                     <div class="comment-form" style="margin-bottom: 0;">
-                        <input type="text" id="replyAuthor" placeholder="닉네임">
+                        <input type="text" id="replyAuthor" readonly placeholder="닉네임">
                         <textarea id="replyText" placeholder="답변을 입력하세요."></textarea>
                         <button onclick="submitReply()">답글</button>
                     </div>
@@ -140,12 +176,20 @@
         let comments = [];
         let currentOpenItemId = null;
         let currentReplyTargetId = null;
+        
+        let currentUser = localStorage.getItem('boardmateUser') || null;
+        let isMyActivityMode = false;
+
+        // 페이지네이션 관련 상태
+        let activePage = 1;
+        let closedPage = 1;
+        const ACTIVE_PER_PAGE = 30; // 진행 중 30개
+        const CLOSED_PER_PAGE = 15; // 마감됨 15개
 
         function formatDate(dateStr) {
             if (!dateStr) return '미정';
             const d = new Date(dateStr);
             if (isNaN(d.getTime())) return String(dateStr).replace('T', ' ').substring(0, 16);
-            
             const year = d.getFullYear();
             const month = String(d.getMonth() + 1).padStart(2, '0');
             const day = String(d.getDate()).padStart(2, '0');
@@ -154,31 +198,95 @@
             return `${year}-${month}-${day} ${hours}:${minutes}`;
         }
 
-        // 1. 구글 시트에서 데이터 불러오기 (캐시 방지 코드 추가 완료)
+        function updateAuthUI() {
+            const container = document.getElementById('userControls');
+            if (currentUser) {
+                const btnText = isMyActivityMode ? "전체 보기" : "🔍 내 활동";
+                const btnColor = isMyActivityMode ? "#27ae60" : "#f39c12";
+                container.innerHTML = `
+                    <span style="font-weight: bold; color: #2980b9; margin-right: 5px;">👤 ${currentUser}님</span>
+                    <button onclick="toggleMyActivity()" style="background-color: ${btnColor}; padding: 8px 12px;">${btnText}</button>
+                    <button onclick="openUploadModal()" style="padding: 8px 12px;">+ 새 물품</button>
+                    <button onclick="logout()" style="background-color: #95a5a6; padding: 8px 12px;">로그아웃</button>
+                `;
+            } else {
+                container.innerHTML = `
+                    <button onclick="openModal('loginModal')" style="background-color: #f39c12;">로그인 (시작하기)</button>
+                `;
+            }
+        }
+
+        function processLogin() {
+            const nick = document.getElementById('loginNickname').value.trim();
+            if (!nick) return alert("닉네임을 입력해주세요.");
+            currentUser = nick;
+            localStorage.setItem('boardmateUser', currentUser);
+            closeModal('loginModal');
+            updateAuthUI();
+            
+            document.getElementById('newCommentAuthor').value = currentUser;
+            document.getElementById('replyAuthor').value = currentUser;
+            
+            alert(`${currentUser}님, 환영합니다!`);
+        }
+
+        function logout() {
+            if(!confirm("로그아웃 하시겠습니까?")) return;
+            currentUser = null;
+            isMyActivityMode = false;
+            activePage = 1; closedPage = 1; // 페이지 초기화
+            localStorage.removeItem('boardmateUser');
+            updateAuthUI();
+            renderAuctions();
+        }
+
+        function toggleMyActivity() {
+            isMyActivityMode = !isMyActivityMode;
+            activePage = 1; closedPage = 1; // 필터 변경 시 1페이지로
+            updateAuthUI();
+            renderAuctions();
+        }
+
+        function requireLogin(callback) {
+            if (!currentUser) {
+                alert("이 기능은 로그인(닉네임 설정) 후 이용 가능합니다.");
+                openModal('loginModal');
+                return;
+            }
+            callback();
+        }
+
+        function openUploadModal() {
+            requireLogin(() => {
+                document.getElementById('sellerName').value = currentUser;
+                openModal('uploadModal');
+            });
+        }
+        
+        function openBidArea() { 
+            requireLogin(() => {
+                document.getElementById('bidderName').value = currentUser;
+                document.getElementById('bidArea').style.display = 'block'; 
+                document.getElementById('bidAmount').focus();
+            });
+        }
+
         async function loadData() {
             document.getElementById('loading').style.display = 'block';
-            document.getElementById('activeGrid').innerHTML = '';
-            document.getElementById('closedGrid').innerHTML = '';
-            
             try {
-                // 뒤에 시간을 붙여서 브라우저가 옛날 데이터를 기억(캐싱)하지 못하게 방지
                 const fetchUrl = API_URL + "?t=" + new Date().getTime();
                 const response = await fetch(fetchUrl, { cache: "no-store" });
-                
-                if (!response.ok) throw new Error(`서버 응답 오류 (상태코드: ${response.status})`);
-                
+                if (!response.ok) throw new Error(`서버 응답 오류`);
                 const text = await response.text();
-                if (text.startsWith("<!DOCTYPE html>")) {
-                    throw new Error("구글 시트 접근 권한이 없습니다.");
-                }
-                
                 const data = JSON.parse(text);
-                auctions = data.items || [];
+                
+                // 최신순 정렬 (ID가 생성 시간이므로 내림차순 정렬)
+                auctions = (data.items || []).sort((a, b) => b.id - a.id);
                 comments = data.comments || [];
+                
                 renderAuctions();
             } catch (error) {
                 console.error("Load Error:", error);
-                alert("최신 코드가 적용되었습니다!\n에러가 발생했다면 새로고침을 해주세요.");
             } finally {
                 document.getElementById('loading').style.display = 'none';
             }
@@ -191,31 +299,82 @@
             closedGrid.innerHTML = '';
             
             const now = new Date();
+            let allActive = [];
+            let allClosed = [];
 
+            // 1. 데이터 분류 및 필터링
             auctions.forEach(item => {
-                const card = document.createElement('div');
-                card.className = 'card';
-                card.onclick = () => openDetailModal(item.id);
+                if (isMyActivityMode && item.seller !== currentUser && item.topBidder !== currentUser) return;
                 
-                const displayTime = formatDate(item.endTime);
                 const itemEndTime = new Date(item.endTime);
-                const isClosed = itemEndTime <= now;
-                
-                card.innerHTML = `
-                    <div class="title">${item.name}</div>
-                    <div class="price">${Number(item.topBid).toLocaleString()}원</div>
-                    <div style="font-size: 0.85em; color: #7f8c8d;">최고 입찰: ${item.topBidder} | 마감: ${displayTime}</div>
-                `;
-                
-                if (isClosed) {
-                    closedGrid.appendChild(card);
-                } else {
-                    activeGrid.appendChild(card);
-                }
+                if (itemEndTime <= now) allClosed.push(item);
+                else allActive.push(item);
             });
+
+            // 2. 페이지네이션을 위한 데이터 자르기
+            const pagedActive = allActive.slice((activePage - 1) * ACTIVE_PER_PAGE, activePage * ACTIVE_PER_PAGE);
+            const pagedClosed = allClosed.slice((closedPage - 1) * CLOSED_PER_PAGE, closedPage * CLOSED_PER_PAGE);
+
+            // 3. 진행 중 렌더링
+            if (pagedActive.length === 0) {
+                activeGrid.innerHTML = '<div class="empty-state">진행 중인 경매가 없습니다.</div>';
+            } else {
+                pagedActive.forEach(item => activeGrid.appendChild(createCard(item)));
+            }
+
+            // 4. 마감 렌더링
+            if (pagedClosed.length === 0) {
+                closedGrid.innerHTML = '<div class="empty-state">마감된 경매가 없습니다.</div>';
+            } else {
+                pagedClosed.forEach(item => closedGrid.appendChild(createCard(item)));
+            }
+
+            // 5. 페이지 번호 그리기
+            renderPagination('activePagination', allActive.length, ACTIVE_PER_PAGE, activePage, (p) => { activePage = p; renderAuctions(); });
+            renderPagination('closedPagination', allClosed.length, CLOSED_PER_PAGE, closedPage, (p) => { closedPage = p; renderAuctions(); });
         }
 
-        // 3. 서버(구글 시트)로 데이터 전송
+        function createCard(item) {
+            const card = document.createElement('div');
+            card.className = 'card';
+            card.onclick = () => openDetailModal(item.id);
+            
+            const displayTime = formatDate(item.endTime);
+            let badge = '';
+            if (isMyActivityMode) {
+                if (item.seller === currentUser) badge = '<span style="background:#3498db; color:white; font-size:0.7em; padding:2px 6px; border-radius:10px; margin-left:5px; vertical-align:middle;">내가 올림</span>';
+                else if (item.topBidder === currentUser) badge = '<span style="background:#e74c3c; color:white; font-size:0.7em; padding:2px 6px; border-radius:10px; margin-left:5px; vertical-align:middle;">내 최고입찰</span>';
+            }
+
+            card.innerHTML = `
+                <div>
+                    <div class="title">${item.name} ${badge}</div>
+                    <div class="price">${Number(item.topBid).toLocaleString()}원</div>
+                </div>
+                <div style="font-size: 0.85em; color: #7f8c8d; margin-top: 10px; border-top: 1px solid #eee; padding-top: 10px;">
+                    최고 입찰: <b style="color:#333">${item.topBidder}</b><br>마감: ${displayTime}
+                </div>
+            `;
+            return card;
+        }
+
+        // 페이지네이션 버튼 생성 함수
+        function renderPagination(containerId, totalItems, itemsPerPage, currentPage, onPageChange) {
+            const container = document.getElementById(containerId);
+            container.innerHTML = '';
+            const totalPages = Math.ceil(totalItems / itemsPerPage);
+            
+            if (totalPages <= 1) return; // 1페이지 이하면 버튼 안 그림
+
+            for (let i = 1; i <= totalPages; i++) {
+                const btn = document.createElement('button');
+                btn.className = 'page-btn' + (i === currentPage ? ' active' : '');
+                btn.innerText = i;
+                btn.onclick = () => onPageChange(i);
+                container.appendChild(btn);
+            }
+        }
+
         async function sendData(payload, btnId) {
             const btn = document.getElementById(btnId);
             if(btn) { btn.disabled = true; btn.innerText = "처리중..."; }
@@ -226,14 +385,12 @@
                     headers: { "Content-Type": "text/plain;charset=utf-8" },
                     body: JSON.stringify(payload)
                 });
-                
                 if (!response.ok) throw new Error(`서버 전송 오류`);
                 
                 alert("성공적으로 처리되었습니다!");
                 await loadData();
             } catch (error) {
-                console.error("Send Error:", error);
-                alert("통신 중 지연이 발생했습니다. 새로고침 후 시트에 데이터가 들어갔는지 확인해주세요.");
+                alert("통신 중 지연이 발생했습니다. 새로고침 후 확인해주세요.");
             } finally {
                 if(btn) { btn.disabled = false; btn.innerText = "확인"; }
                 closeModal('uploadModal');
@@ -250,7 +407,6 @@
             const meetingDate = document.getElementById('meetingDate').value;
 
             if(!name || !minPrice || !endTime || !seller) return alert("필수 항목을 모두 입력해주세요.");
-
             sendData({ action: "addItem", name, img, minPrice, endTime, seller, meetingDate }, 'submitItemBtn');
         }
 
@@ -267,30 +423,42 @@
         }
 
         function submitComment() {
-            const author = document.getElementById('newCommentAuthor').value;
-            const text = document.getElementById('newCommentText').value;
-            if(!author || !text) return alert("닉네임과 내용을 입력하세요.");
-            
-            sendData({ action: "addComment", itemId: currentOpenItemId, parentId: "", author, text });
-            document.getElementById('newCommentText').value = '';
+            requireLogin(() => {
+                const author = document.getElementById('newCommentAuthor').value;
+                const text = document.getElementById('newCommentText').value;
+                if(!text) return alert("내용을 입력하세요.");
+                
+                sendData({ action: "addComment", itemId: currentOpenItemId, parentId: "", author, text });
+                document.getElementById('newCommentText').value = '';
+            });
         }
 
         function submitReply() {
-            const author = document.getElementById('replyAuthor').value;
-            const text = document.getElementById('replyText').value;
-            if(!author || !text) return alert("닉네임과 내용을 입력하세요.");
-            
-            sendData({ action: "addComment", itemId: currentOpenItemId, parentId: currentReplyTargetId, author, text });
-            document.getElementById('replyFormArea').style.display = 'none';
+            requireLogin(() => {
+                const author = document.getElementById('replyAuthor').value;
+                const text = document.getElementById('replyText').value;
+                if(!text) return alert("내용을 입력하세요.");
+                
+                sendData({ action: "addComment", itemId: currentOpenItemId, parentId: currentReplyTargetId, author, text });
+                document.getElementById('replyFormArea').style.display = 'none';
+            });
+        }
+
+        function submitDeleteAgreement() {
+            if(!confirm("정말 동의/삭제 하시겠습니까?")) return;
+            sendData({ action: "agreeDelete", itemId: currentOpenItemId, user: currentUser }, 'btnAgreeDelete');
         }
 
         function openModal(id) { document.getElementById(id).style.display = 'flex'; }
         function closeModal(id) { document.getElementById(id).style.display = 'none'; }
-        function openBidArea() { document.getElementById('bidArea').style.display = 'block'; }
+        
         function openReplyForm(parentId) {
-            currentReplyTargetId = parentId;
-            document.getElementById('replyFormArea').style.display = 'block';
-            document.getElementById('replyAuthor').focus();
+            requireLogin(() => {
+                currentReplyTargetId = parentId;
+                document.getElementById('replyFormArea').style.display = 'block';
+                document.getElementById('replyAuthor').value = currentUser;
+                document.getElementById('replyText').focus();
+            });
         }
 
         function openDetailModal(id) {
@@ -322,15 +490,47 @@
             
             const isClosed = new Date(item.endTime) <= new Date();
             const btnOpenBid = document.getElementById('btnOpenBid');
+            const deleteArea = document.getElementById('deleteActionArea');
+            const btnAgreeDelete = document.getElementById('btnAgreeDelete');
+            const statusText = document.getElementById('deleteStatusText');
+
             if (isClosed) {
                 btnOpenBid.style.display = 'none';
+                
+                if (currentUser && (currentUser === item.seller || currentUser === item.topBidder)) {
+                    deleteArea.style.display = 'block';
+                    if (item.topBidder === '없음' || item.seller === item.topBidder) {
+                        statusText.innerText = "입찰자가 없어 즉시 삭제 가능합니다.";
+                        btnAgreeDelete.style.display = 'block';
+                        btnAgreeDelete.innerText = "내역 삭제하기";
+                    } else if (item.deleteReq === currentUser) {
+                        statusText.innerText = "✅ 삭제에 동의하셨습니다. 상대방의 동의를 기다리는 중입니다.";
+                        btnAgreeDelete.style.display = 'none';
+                    } else if (item.deleteReq && item.deleteReq !== "") {
+                        statusText.innerText = `⚠️ ${item.deleteReq}님이 삭제에 동의했습니다. 함께 동의하시면 즉시 삭제됩니다.`;
+                        btnAgreeDelete.style.display = 'block';
+                        btnAgreeDelete.innerText = "나도 동의하여 삭제하기";
+                    } else {
+                        statusText.innerText = "🤝 판매자와 낙찰자 모두 동의하면 내역이 삭제됩니다.";
+                        btnAgreeDelete.style.display = 'block';
+                        btnAgreeDelete.innerText = "삭제 동의하기";
+                    }
+                } else {
+                    deleteArea.style.display = 'none';
+                }
             } else {
                 btnOpenBid.style.display = 'block';
+                deleteArea.style.display = 'none';
             }
             
             document.getElementById('bidArea').style.display = 'none';
             document.getElementById('replyFormArea').style.display = 'none';
             
+            if (currentUser) {
+                document.getElementById('newCommentAuthor').value = currentUser;
+                document.getElementById('replyAuthor').value = currentUser;
+            }
+
             renderComments(id);
             openModal('detailModal');
         }
@@ -354,9 +554,7 @@
             let timeString = "";
             if (c.time) {
                 const dateObj = new Date(c.time);
-                if (!isNaN(dateObj.getTime())) {
-                    timeString = dateObj.toLocaleString();
-                }
+                if (!isNaN(dateObj.getTime())) timeString = dateObj.toLocaleString();
             }
 
             div.innerHTML = `
@@ -370,6 +568,7 @@
             return div;
         }
 
+        updateAuthUI();
         loadData();
     </script>
 </body>
