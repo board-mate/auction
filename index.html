@@ -1,0 +1,313 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>보드메이트 경매장</title>
+    <style>
+        body { font-family: 'Pretendard', sans-serif; background-color: #f4f7f6; margin: 0; padding: 20px; color: #333; }
+        .header { display: flex; justify-content: space-between; align-items: center; max-width: 1000px; margin: 0 auto 20px auto; }
+        .header h1 { margin: 0; color: #2c3e50; }
+        button { background-color: #3498db; color: white; border: none; padding: 10px 15px; border-radius: 5px; cursor: pointer; font-weight: bold; }
+        button:hover { background-color: #2980b9; }
+        button:disabled { background-color: #bdc3c7; cursor: not-allowed; }
+        input, textarea { width: 100%; padding: 10px; margin: 5px 0 15px 0; box-sizing: border-box; border: 1px solid #ccc; border-radius: 5px; font-family: inherit; }
+        
+        .grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(280px, 1fr)); gap: 20px; max-width: 1000px; margin: 0 auto; }
+        .card { background: white; border-radius: 10px; padding: 15px; box-shadow: 0 4px 6px rgba(0,0,0,0.05); cursor: pointer; transition: transform 0.2s; }
+        .card:hover { transform: translateY(-5px); }
+        .card img { width: 100%; height: 200px; object-fit: cover; border-radius: 8px; background: #eee; }
+        .title { font-size: 1.2em; font-weight: bold; margin: 10px 0; }
+        .price { font-size: 1.3em; color: #e74c3c; font-weight: bold; margin: 10px 0; }
+        
+        .modal { display: none; position: fixed; top: 0; left: 0; width: 100%; height: 100%; background: rgba(0,0,0,0.6); justify-content: center; align-items: center; z-index: 1000; }
+        .modal-content { background: white; padding: 20px; border-radius: 10px; width: 90%; max-width: 500px; max-height: 90vh; overflow-y: auto; }
+        .modal-actions { display: flex; justify-content: flex-end; gap: 10px; margin-top: 15px; }
+        .close-btn { background-color: #95a5a6; }
+        
+        .help-text { font-size: 0.85em; color: #7f8c8d; margin-top: -10px; margin-bottom: 10px; display: block; }
+        .help-link { color: #3498db; text-decoration: none; font-weight: bold; }
+
+        .comment-section { margin-top: 30px; border-top: 2px solid #eee; padding-top: 20px; }
+        .comment { background: #f9f9f9; padding: 10px; border-radius: 8px; margin-bottom: 10px; }
+        .reply { margin-left: 20px; border-left: 3px solid #3498db; background: #fff; }
+        .comment-header { display: flex; justify-content: space-between; font-size: 0.9em; margin-bottom: 5px; }
+        .comment-form { display: flex; gap: 10px; margin-bottom: 20px; }
+        .comment-form input { flex: 1; margin: 0; }
+        .comment-form textarea { flex: 3; margin: 0; height: 40px; resize: none; }
+        .reply-btn { background: none; color: #3498db; padding: 0; font-size: 0.85em; margin-top: 5px; }
+
+        #loading { display: none; text-align: center; font-weight: bold; padding: 20px; color: #3498db; }
+    </style>
+</head>
+<body>
+
+    <div class="header">
+        <h1>🎲 보드메이트 경매장</h1>
+        <button onclick="openModal('uploadModal')">+ 새 물품 올리기</button>
+    </div>
+
+    <div id="loading">데이터를 불러오는 중입니다... ⏳</div>
+    <div class="grid" id="auctionGrid"></div>
+
+    <!-- 1. 물품 등록 모달 -->
+    <div class="modal" id="uploadModal">
+        <div class="modal-content">
+            <h2>새 물품 등록</h2>
+            <label>보드게임 이름 *</label>
+            <input type="text" id="itemName" placeholder="예: 텔레스트레이션, 스컬킹">
+            
+            <label>사진 링크 (선택사항)</label>
+            <input type="text" id="itemImage" placeholder="비워두면 기본 이미지 적용">
+            <span class="help-text">👉 사진 링크 만들기: <a href="https://postimages.org/" target="_blank" class="help-link">Postimages.org (새창)</a></span>
+            
+            <label>최저 시작 가격 (원) *</label>
+            <input type="number" id="minPrice" placeholder="10000">
+            
+            <label>마감 시간 *</label>
+            <input type="datetime-local" id="endTime">
+            
+            <label>판매자 닉네임 *</label>
+            <input type="text" id="sellerName" placeholder="본인 닉네임">
+            
+            <div class="modal-actions">
+                <button class="close-btn" onclick="closeModal('uploadModal')">취소</button>
+                <button id="submitItemBtn" onclick="submitItem()">등록하기</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- 2. 물품 상세 및 댓글 모달 -->
+    <div class="modal" id="detailModal">
+        <div class="modal-content">
+            <h2 id="detailTitle">물품 이름</h2>
+            <img id="detailImage" src="" style="width:100%; border-radius:8px; margin-bottom:15px; background:#eee;">
+            <p>💰 현재 최고가: <b id="detailPrice" style="color:#e74c3c; font-size:1.2em;"></b> (입찰자: <span id="detailTopBidder"></span>)</p>
+            <p>🕒 마감 시간: <span id="detailEndTime"></span></p>
+            <p>👤 판매자: <span id="detailSeller"></span></p>
+            
+            <button style="width: 100%; margin-bottom: 20px; font-size: 1.1em; padding: 15px;" onclick="openBidArea()">참여하기 (입찰)</button>
+            
+            <!-- 입찰 입력 영역 -->
+            <div id="bidArea" style="display:none; background:#f4f7f6; padding:15px; border-radius:8px; margin-bottom:20px;">
+                <input type="text" id="bidderName" placeholder="입찰자 닉네임">
+                <input type="number" id="bidAmount" placeholder="입찰 금액 (원)">
+                <button id="submitBidBtn" style="width: 100%;" onclick="submitBid()">입찰 확정</button>
+            </div>
+
+            <!-- 댓글 영역 -->
+            <div class="comment-section">
+                <h3>💬 질의응답</h3>
+                <div class="comment-form">
+                    <input type="text" id="newCommentAuthor" placeholder="닉네임">
+                    <textarea id="newCommentText" placeholder="질문이나 댓글을 남겨주세요."></textarea>
+                    <button onclick="submitComment()">등록</button>
+                </div>
+
+                <div id="replyFormArea" style="display:none; margin-bottom: 15px; background: #e8f4fd; padding: 10px; border-radius: 5px;">
+                    <span style="font-size:0.8em; color:#2980b9;">↳ 대댓글 작성 중...</span>
+                    <div class="comment-form" style="margin-bottom: 0;">
+                        <input type="text" id="replyAuthor" placeholder="닉네임">
+                        <textarea id="replyText" placeholder="답변을 입력하세요."></textarea>
+                        <button onclick="submitReply()">답글</button>
+                    </div>
+                </div>
+
+                <div id="commentList"></div>
+            </div>
+
+            <div class="modal-actions">
+                <button class="close-btn" onclick="closeModal('detailModal')">닫기</button>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        // 알려주신 웹앱 주소를 여기에 바로 적용했습니다!
+        const API_URL = "https://script.google.com/macros/s/AKfycbz9kUtTtg_CHSaCAqSX_cYyiDsqwHx29U9oiZV2OJIGa1a-5XvsgSue8LPMxvo-KN7E/exec";
+        
+        let auctions = [];
+        let comments = [];
+        let currentOpenItemId = null;
+        let currentReplyTargetId = null;
+
+        // 1. 구글 시트에서 데이터 불러오기
+        async function loadData() {
+            document.getElementById('loading').style.display = 'block';
+            document.getElementById('auctionGrid').innerHTML = '';
+            
+            try {
+                const response = await fetch(API_URL);
+                const data = await response.json();
+                auctions = data.items || [];
+                comments = data.comments || [];
+                renderAuctions();
+            } catch (error) {
+                alert("데이터를 불러오는 중 오류가 발생했습니다.");
+            } finally {
+                document.getElementById('loading').style.display = 'none';
+            }
+        }
+
+        // 2. 화면에 물품 목록 그리기
+        function renderAuctions() {
+            const grid = document.getElementById('auctionGrid');
+            grid.innerHTML = '';
+            auctions.forEach(item => {
+                const card = document.createElement('div');
+                card.className = 'card';
+                card.onclick = () => openDetailModal(item.id);
+                // 마감시간 포맷 변경 (T 제거)
+                const displayTime = item.endTime ? String(item.endTime).replace('T', ' ') : '미정';
+                
+                card.innerHTML = `
+                    <img src="${item.img}" alt="${item.name}">
+                    <div class="title">${item.name}</div>
+                    <div class="price">${Number(item.topBid).toLocaleString()}원</div>
+                    <div style="font-size: 0.85em; color: #7f8c8d;">최고 입찰: ${item.topBidder} | 마감: ${displayTime}</div>
+                `;
+                grid.appendChild(card);
+            });
+        }
+
+        // 3. 서버(구글 시트)로 데이터 전송하는 공통 함수
+        async function sendData(payload, btnId) {
+            const btn = document.getElementById(btnId);
+            if(btn) { btn.disabled = true; btn.innerText = "처리중..."; }
+            
+            try {
+                // 구글 앱스 스크립트 CORS 우회를 위해 text/plain 사용
+                await fetch(API_URL, {
+                    method: "POST",
+                    headers: { "Content-Type": "text/plain;charset=utf-8" },
+                    body: JSON.stringify(payload)
+                });
+                alert("성공적으로 처리되었습니다!");
+                await loadData(); // 데이터 다시 불러와서 화면 갱신
+            } catch (error) {
+                alert("오류가 발생했습니다. 다시 시도해 주세요.");
+            } finally {
+                if(btn) { btn.disabled = false; btn.innerText = "확인"; }
+            }
+        }
+
+        // --- 기능별 액션 함수들 ---
+
+        function submitItem() {
+            const name = document.getElementById('itemName').value;
+            let img = document.getElementById('itemImage').value;
+            const minPrice = document.getElementById('minPrice').value;
+            const endTime = document.getElementById('endTime').value;
+            const seller = document.getElementById('sellerName').value;
+
+            if(!name || !minPrice || !endTime || !seller) return alert("필수 항목을 모두 입력해주세요.");
+            
+            // 이미지가 비어있으면 기본 보드게임 아이콘 이미지로 대체
+            if(!img.trim()) {
+                img = `https://ui-avatars.com/api/?name=${encodeURIComponent(name)}&background=random&color=fff&size=400&font-size=0.3`;
+            }
+
+            sendData({ action: "addItem", name, img, minPrice, endTime, seller }, 'submitItemBtn');
+            closeModal('uploadModal');
+        }
+
+        function submitBid() {
+            const bidder = document.getElementById('bidderName').value;
+            const amount = Number(document.getElementById('bidAmount').value);
+            const item = auctions.find(a => a.id === currentOpenItemId);
+
+            if(!bidder || !amount) return alert("닉네임과 금액을 입력해주세요.");
+            if(amount <= Number(item.topBid)) return alert(`현재 최고가(${item.topBid}원)보다 높게 입찰해야 합니다.`);
+
+            sendData({ action: "addBid", itemId: currentOpenItemId, bidder, amount }, 'submitBidBtn');
+            document.getElementById('bidArea').style.display = 'none';
+            closeModal('detailModal');
+        }
+
+        function submitComment() {
+            const author = document.getElementById('newCommentAuthor').value;
+            const text = document.getElementById('newCommentText').value;
+            if(!author || !text) return alert("닉네임과 내용을 입력하세요.");
+            
+            sendData({ action: "addComment", itemId: currentOpenItemId, parentId: "", author, text });
+            document.getElementById('newCommentText').value = '';
+        }
+
+        function submitReply() {
+            const author = document.getElementById('replyAuthor').value;
+            const text = document.getElementById('replyText').value;
+            if(!author || !text) return alert("닉네임과 내용을 입력하세요.");
+            
+            sendData({ action: "addComment", itemId: currentOpenItemId, parentId: currentReplyTargetId, author, text });
+            document.getElementById('replyFormArea').style.display = 'none';
+        }
+
+        // --- UI 컨트롤 함수들 ---
+        function openModal(id) { document.getElementById(id).style.display = 'flex'; }
+        function closeModal(id) { document.getElementById(id).style.display = 'none'; }
+        function openBidArea() { document.getElementById('bidArea').style.display = 'block'; }
+        function openReplyForm(parentId) {
+            currentReplyTargetId = parentId;
+            document.getElementById('replyFormArea').style.display = 'block';
+            document.getElementById('replyAuthor').focus();
+        }
+
+        function openDetailModal(id) {
+            currentOpenItemId = id;
+            const item = auctions.find(a => a.id === id);
+            
+            document.getElementById('detailTitle').innerText = item.name;
+            document.getElementById('detailImage').src = item.img;
+            document.getElementById('detailPrice').innerText = Number(item.topBid).toLocaleString() + "원";
+            document.getElementById('detailTopBidder').innerText = item.topBidder === "없음" ? "아직 입찰자가 없습니다" : item.topBidder;
+            document.getElementById('detailEndTime').innerText = item.endTime ? String(item.endTime).replace('T', ' ') : '';
+            document.getElementById('detailSeller').innerText = item.seller;
+            
+            document.getElementById('bidArea').style.display = 'none';
+            document.getElementById('replyFormArea').style.display = 'none';
+            
+            renderComments(id);
+            openModal('detailModal');
+        }
+
+        function renderComments(itemId) {
+            const list = document.getElementById('commentList');
+            list.innerHTML = '';
+            
+            const mainComments = comments.filter(c => c.itemId == itemId && !c.parentId);
+            mainComments.forEach(main => {
+                list.appendChild(createCommentHTML(main, false));
+                const replies = comments.filter(c => c.itemId == itemId && c.parentId == main.id);
+                replies.forEach(reply => list.appendChild(createCommentHTML(reply, true)));
+            });
+        }
+
+        function createCommentHTML(c, isReply) {
+            const div = document.createElement('div');
+            div.className = isReply ? 'comment reply' : 'comment';
+            
+            // 날짜 포맷팅 (에러 방지)
+            let timeString = "";
+            if (c.time) {
+                const dateObj = new Date(c.time);
+                if (!isNaN(dateObj.getTime())) {
+                    timeString = dateObj.toLocaleString();
+                }
+            }
+
+            div.innerHTML = `
+                <div class="comment-header">
+                    <span style="font-weight:bold;">${isReply ? '↳ ' : ''}${c.author}</span>
+                    <span style="color:#95a5a6; font-size:0.9em;">${timeString}</span>
+                </div>
+                <div style="margin-top:5px;">${c.text}</div>
+                ${!isReply ? `<button class="reply-btn" onclick="openReplyForm(${c.id})">답글 달기</button>` : ''}
+            `;
+            return div;
+        }
+
+        // 페이지 로드 시 초기 데이터 호출
+        loadData();
+    </script>
+</body>
+</html>
