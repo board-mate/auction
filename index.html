@@ -8,16 +8,16 @@
         body { font-family: 'Pretendard', sans-serif; background-color: #f4f7f6; margin: 0; padding: 20px; color: #333; }
         .header { display: flex; justify-content: space-between; align-items: center; max-width: 1000px; margin: 0 auto 20px auto; }
         .header h1 { margin: 0; color: #2c3e50; }
+        .section-title { max-width: 1000px; margin: 30px auto 15px auto; color: #2c3e50; border-bottom: 2px solid #ccc; padding-bottom: 5px; font-size: 1.5em; }
         button { background-color: #3498db; color: white; border: none; padding: 10px 15px; border-radius: 5px; cursor: pointer; font-weight: bold; }
         button:hover { background-color: #2980b9; }
         button:disabled { background-color: #bdc3c7; cursor: not-allowed; }
         input, textarea { width: 100%; padding: 10px; margin: 5px 0 15px 0; box-sizing: border-box; border: 1px solid #ccc; border-radius: 5px; font-family: inherit; }
         
         .grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(280px, 1fr)); gap: 20px; max-width: 1000px; margin: 0 auto; }
-        .card { background: white; border-radius: 10px; padding: 15px; box-shadow: 0 4px 6px rgba(0,0,0,0.05); cursor: pointer; transition: transform 0.2s; }
-        .card:hover { transform: translateY(-5px); }
-        .card img { width: 100%; height: 200px; object-fit: cover; border-radius: 8px; background: #eee; }
-        .title { font-size: 1.2em; font-weight: bold; margin: 10px 0; }
+        .card { background: white; border-radius: 10px; padding: 20px; box-shadow: 0 4px 6px rgba(0,0,0,0.05); cursor: pointer; transition: transform 0.2s; border: 1px solid #eee; }
+        .card:hover { transform: translateY(-5px); border-color: #3498db; }
+        .title { font-size: 1.3em; font-weight: bold; margin-bottom: 15px; color: #2c3e50; }
         .price { font-size: 1.3em; color: #e74c3c; font-weight: bold; margin: 10px 0; }
         
         .modal { display: none; position: fixed; top: 0; left: 0; width: 100%; height: 100%; background: rgba(0,0,0,0.6); justify-content: center; align-items: center; z-index: 1000; }
@@ -48,7 +48,12 @@
     </div>
 
     <div id="loading">데이터를 불러오는 중입니다... ⏳</div>
-    <div class="grid" id="auctionGrid"></div>
+    
+    <h2 class="section-title">🟢 진행 중인 경매</h2>
+    <div class="grid" id="activeGrid"></div>
+
+    <h2 class="section-title" style="margin-top: 50px; color: #7f8c8d;">🔴 마감된 경매</h2>
+    <div class="grid" id="closedGrid" style="opacity: 0.7;"></div>
 
     <!-- 1. 물품 등록 모달 -->
     <div class="modal" id="uploadModal">
@@ -70,6 +75,9 @@
             <label>판매자 닉네임 *</label>
             <input type="text" id="sellerName" placeholder="본인 닉네임">
             
+            <label>다음 정모 참석 예정일 (선택사항)</label>
+            <input type="date" id="meetingDate">
+            
             <div class="modal-actions">
                 <button class="close-btn" onclick="closeModal('uploadModal')">취소</button>
                 <button id="submitItemBtn" onclick="submitItem()">등록하기</button>
@@ -80,13 +88,16 @@
     <!-- 2. 물품 상세 및 댓글 모달 -->
     <div class="modal" id="detailModal">
         <div class="modal-content">
-            <h2 id="detailTitle">물품 이름</h2>
-            <img id="detailImage" src="" style="width:100%; border-radius:8px; margin-bottom:15px; background:#eee;">
+            <h2 id="detailTitle" style="margin-bottom: 10px;">물품 이름</h2>
+            <div style="margin-bottom: 15px; padding: 10px; background: #f8f9fa; border-radius: 5px; font-size: 0.9em;">
+                🖼️ <b>사진 링크:</b> <a id="detailImageLink" href="#" target="_blank" style="color: #3498db; word-break: break-all;">없음</a>
+            </div>
             <p>💰 현재 최고가: <b id="detailPrice" style="color:#e74c3c; font-size:1.2em;"></b> (입찰자: <span id="detailTopBidder"></span>)</p>
             <p>🕒 마감 시간: <span id="detailEndTime"></span></p>
             <p>👤 판매자: <span id="detailSeller"></span></p>
+            <p>📅 참석 예정일: <span id="detailMeetingDate"></span></p>
             
-            <button style="width: 100%; margin-bottom: 20px; font-size: 1.1em; padding: 15px;" onclick="openBidArea()">참여하기 (입찰)</button>
+            <button id="btnOpenBid" style="width: 100%; margin-bottom: 20px; font-size: 1.1em; padding: 15px;" onclick="openBidArea()">참여하기 (입찰)</button>
             
             <!-- 입찰 입력 영역 -->
             <div id="bidArea" style="display:none; background:#f4f7f6; padding:15px; border-radius:8px; margin-bottom:20px;">
@@ -131,6 +142,20 @@
         let currentOpenItemId = null;
         let currentReplyTargetId = null;
 
+        // 구글 시트의 시간을 한국 시간으로 예쁘게 포맷팅
+        function formatDate(dateStr) {
+            if (!dateStr) return '미정';
+            const d = new Date(dateStr);
+            if (isNaN(d.getTime())) return String(dateStr).replace('T', ' ').substring(0, 16);
+            
+            const year = d.getFullYear();
+            const month = String(d.getMonth() + 1).padStart(2, '0');
+            const day = String(d.getDate()).padStart(2, '0');
+            const hours = String(d.getHours()).padStart(2, '0');
+            const minutes = String(d.getMinutes()).padStart(2, '0');
+            return `${year}-${month}-${day} ${hours}:${minutes}`;
+        }
+
         // 1. 구글 시트에서 데이터 불러오기
         async function loadData() {
             document.getElementById('loading').style.display = 'block';
@@ -151,22 +176,33 @@
 
         // 2. 화면에 물품 목록 그리기
         function renderAuctions() {
-            const grid = document.getElementById('auctionGrid');
-            grid.innerHTML = '';
+            const activeGrid = document.getElementById('activeGrid');
+            const closedGrid = document.getElementById('closedGrid');
+            activeGrid.innerHTML = '';
+            closedGrid.innerHTML = '';
+            
+            const now = new Date();
+
             auctions.forEach(item => {
                 const card = document.createElement('div');
                 card.className = 'card';
                 card.onclick = () => openDetailModal(item.id);
-                // 마감시간 포맷 변경 (T 제거)
-                const displayTime = item.endTime ? String(item.endTime).replace('T', ' ') : '미정';
+                
+                const displayTime = formatDate(item.endTime);
+                const itemEndTime = new Date(item.endTime);
+                const isClosed = itemEndTime <= now;
                 
                 card.innerHTML = `
-                    <img src="${item.img}" alt="${item.name}">
                     <div class="title">${item.name}</div>
                     <div class="price">${Number(item.topBid).toLocaleString()}원</div>
                     <div style="font-size: 0.85em; color: #7f8c8d;">최고 입찰: ${item.topBidder} | 마감: ${displayTime}</div>
                 `;
-                grid.appendChild(card);
+                
+                if (isClosed) {
+                    closedGrid.appendChild(card);
+                } else {
+                    activeGrid.appendChild(card);
+                }
             });
         }
 
@@ -199,15 +235,11 @@
             const minPrice = document.getElementById('minPrice').value;
             const endTime = document.getElementById('endTime').value;
             const seller = document.getElementById('sellerName').value;
+            const meetingDate = document.getElementById('meetingDate').value;
 
             if(!name || !minPrice || !endTime || !seller) return alert("필수 항목을 모두 입력해주세요.");
-            
-            // 이미지가 비어있으면 기본 보드게임 아이콘 이미지로 대체
-            if(!img.trim()) {
-                img = `https://ui-avatars.com/api/?name=${encodeURIComponent(name)}&background=random&color=fff&size=400&font-size=0.3`;
-            }
 
-            sendData({ action: "addItem", name, img, minPrice, endTime, seller }, 'submitItemBtn');
+            sendData({ action: "addItem", name, img, minPrice, endTime, seller, meetingDate }, 'submitItemBtn');
             closeModal('uploadModal');
         }
 
@@ -257,11 +289,37 @@
             const item = auctions.find(a => a.id === id);
             
             document.getElementById('detailTitle').innerText = item.name;
-            document.getElementById('detailImage').src = item.img;
+            
+            // 이미지 링크 텍스트 설정
+            const imgLinkObj = document.getElementById('detailImageLink');
+            if (item.img && item.img.trim() !== '') {
+                imgLinkObj.href = item.img;
+                imgLinkObj.innerText = item.img;
+                imgLinkObj.style.pointerEvents = 'auto';
+                imgLinkObj.style.color = '#3498db';
+                imgLinkObj.style.textDecoration = 'underline';
+            } else {
+                imgLinkObj.href = '#';
+                imgLinkObj.innerText = '등록된 사진이 없습니다';
+                imgLinkObj.style.pointerEvents = 'none';
+                imgLinkObj.style.color = '#7f8c8d';
+                imgLinkObj.style.textDecoration = 'none';
+            }
+
             document.getElementById('detailPrice').innerText = Number(item.topBid).toLocaleString() + "원";
             document.getElementById('detailTopBidder').innerText = item.topBidder === "없음" ? "아직 입찰자가 없습니다" : item.topBidder;
-            document.getElementById('detailEndTime').innerText = item.endTime ? String(item.endTime).replace('T', ' ') : '';
+            document.getElementById('detailEndTime').innerText = formatDate(item.endTime);
             document.getElementById('detailSeller').innerText = item.seller;
+            document.getElementById('detailMeetingDate').innerText = item.meetingDate ? item.meetingDate : '미정';
+            
+            // 마감 여부에 따라 입찰 버튼 숨기기
+            const isClosed = new Date(item.endTime) <= new Date();
+            const btnOpenBid = document.getElementById('btnOpenBid');
+            if (isClosed) {
+                btnOpenBid.style.display = 'none';
+            } else {
+                btnOpenBid.style.display = 'block';
+            }
             
             document.getElementById('bidArea').style.display = 'none';
             document.getElementById('replyFormArea').style.display = 'none';
